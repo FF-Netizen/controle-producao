@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Controle Corte / Medição</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- FIREBASE -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyA3iJWhs494B0MuXUVeVFQTuNuWeKN6mrU",
+      authDomain: "lucas-a1b24-950fa.firebaseapp.com",
+      projectId: "lucas-a1b24-950fa",
+      storageBucket: "lucas-a1b24-950fa.appspot.com",
+      messagingSenderId: "550946241450",
+      appId: "1:550946241450:web:8a986a79fad57f83b049d3"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // salvar
+    window.salvarFirebase = async (dado) => {
+      await addDoc(collection(db, "producao"), dado);
+    };
+
+    // excluir
+    window.excluirFirebase = async (id) => {
+      if (!id) return;
+      await deleteDoc(doc(db, "producao", id));
+    };
+
+    // realtime
+    window.iniciarRealtime = () => {
+      onSnapshot(collection(db, "producao"), (snapshot) => {
+        window.lista = [];
+        snapshot.forEach((docItem) => {
+          window.lista.push({ id: docItem.id, ...docItem.data() });
+        });
+        window.atualizar();
+        window.atualizarKPIs();
+      });
+    };
+
+    window.addEventListener("load", () => {
+      window.iniciarRealtime();
+    });
+  </script>
+</head>
+
+<body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
+
+<div class="p-6">
+<div class="max-w-7xl mx-auto">
+
+  <!-- HEADER -->
+  <div class="flex justify-between items-center mb-6">
+    <div class="flex items-center gap-4">
+      <img src="logo.png" class="h-12">
+      <h1 class="text-2xl md:text-3xl font-bold">Controle de Colaboradores – Corte e Medição</h1>
+    </div>
+    <span id="data"></span>
+  </div>
+
+  <!-- KPI -->
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+    <div class="bg-gray-800 p-4 rounded"><p>Colaboradores – Corte e Medição</p><h2 id="total">0</h2></div>
+    <div class="bg-gray-800 p-4 rounded"><p>Comercial</p><h2 id="comercial">0</h2></div>
+    <div class="bg-gray-800 p-4 rounded"><p>Manhã</p><h2 id="manha">0</h2></div>
+    <div class="bg-gray-800 p-4 rounded"><p>Tarde</p><h2 id="tarde">0</h2></div>
+    <div class="bg-gray-800 p-4 rounded"><p>Noite</p><h2 id="noite">0</h2></div>
+  </div>
+
+  <!-- FORM -->
+  <div class="bg-gray-800 p-6 rounded mb-6">
+    <div class="grid grid-cols-2 md:grid-cols-7 gap-3">
+      <select id="turno" class="p-2 bg-gray-700">
+        <option value="">Turno</option>
+        <option>Manhã</option>
+        <option>Tarde</option>
+        <option>Noite</option>
+        <option>Comercial</option>
+      </select>
+
+      <select id="horario" class="p-2 bg-gray-700">
+        <option value="">Horário</option>
+        <option>06:00 às 14:00</option>
+        <option>14:00 às 22:00</option>
+        <option>22:00 às 06:00</option>
+        <option>07:00 às 17:00</option>
+      </select>
+
+      <input id="lider" placeholder="Líder" class="p-2 bg-gray-700">
+      <input id="apontamento" placeholder="Apontamento" class="p-2 bg-gray-700">
+
+      <select id="maquina" class="p-2 bg-gray-700">
+        <option value="">Máquina</option>
+        <option>302 - Repasse</option>
+        <option>303 - Repasse</option>
+        <option>304 - Repasse</option>
+        <option>308 - Repasse</option>
+        <option>306 - Corte de Rolos</option>
+        <option>310 - Corte de Rolos</option>
+        <option>311 - Máquina Pionner</option>
+      </select>
+
+      <input id="operador" placeholder="Operador" class="p-2 bg-gray-700">
+      <input id="ajudante" placeholder="Ajudante" class="p-2 bg-gray-700">
+    </div>
+
+    <div class="flex gap-3 mt-4">
+      <button onclick="adicionar()" class="bg-blue-600 w-full p-2 rounded">Adicionar</button>
+      <button onclick="gerarPDF()" class="bg-green-600 w-full p-2 rounded">Gerar PDF</button>
+    </div>
+  </div>
+
+  <!-- TABELA -->
+  <table class="w-full text-center">
+    <thead>
+      <tr>
+        <th>Turno</th>
+        <th>Horário</th>
+        <th>Líder</th>
+        <th>Apontamento</th>
+        <th>Máquina</th>
+        <th>Operador</th>
+        <th>Ajudante</th>
+        <th>Ação</th>
+      </tr>
+    </thead>
+    <tbody id="tabela"></tbody>
+  </table>
+
+</div>
+</div>
+
+<script>
+window.lista = [];
+const tabela = document.getElementById("tabela");
+
+document.getElementById("data").innerText = new Date().toLocaleDateString();
+
+// adicionar
+async function adicionar(){
+  const turno = document.getElementById("turno").value;
+  const lider = document.getElementById("lider").value;
+  const horario = document.getElementById("horario").value;
+  const apontamento = document.getElementById("apontamento").value;
+  const maquina = document.getElementById("maquina").value;
+  const operador = document.getElementById("operador").value;
+  const ajudante = document.getElementById("ajudante").value;
+
+  if(!maquina || !operador){
+    alert("Preencha máquina e operador");
+    return;
+  }
+
+  const novo = { turno, lider, horario, apontamento, maquina, operador, ajudante };
+
+  // adiciona local imediato (sem esperar firebase)
+  window.lista.push(novo);
+  atualizar();
+  atualizarKPIs();
+
+  // salva no firebase
+  await window.salvarFirebase(novo);
+
+  document.getElementById("operador").value = "";
+  document.getElementById("ajudante").value = "";
+}
+
+// tabela
+function atualizar(){
+  tabela.innerHTML = "";
+  window.lista.forEach(item => {
+    tabela.innerHTML += `
+      <tr>
+        <td>${item.turno || '-'}</td>
+        <td>${item.horario || '-'}</td>
+        <td>${item.lider || '-'}</td>
+        <td>${item.apontamento || '-'}</td>
+        <td>${item.maquina}</td>
+        <td class="text-blue-400">${item.operador}</td>
+        <td class="text-green-400">${item.ajudante || '-'}</td>
+        <td><button onclick="excluir('${item.id || ''}', ${window.lista.indexOf(item)})" class="text-red-400">Excluir</button></td>
+      </tr>`;
+  });
+}
+
+// kpi (FIXED BUG)
+function atualizarKPIs(){
+  document.getElementById("comercial").innerText = window.lista.filter(i=>i.turno==="Comercial").length;
+  document.getElementById("manha").innerText = window.lista.filter(i=>i.turno==="Manhã").length;
+  document.getElementById("tarde").innerText = window.lista.filter(i=>i.turno==="Tarde").length;
+  document.getElementById("noite").innerText = window.lista.filter(i=>i.turno==="Noite").length;
+
+  const set = new Set();
+  window.lista.forEach(i=>{
+    if(i.operador) set.add(i.operador);
+    if(i.ajudante) set.add(i.ajudante);
+  });
+
+  document.getElementById("total").innerText = set.size;
+}
+
+// excluir
+async function excluir(id, index){
+  // se ainda não tem id (registro local), remove só da tela
+  if(!id){
+    window.lista.splice(index,1);
+    atualizar();
+    atualizarKPIs();
+    return;
+  }
+
+  // remove do firebase (tempo real atualiza a tela)
+  await window.excluirFirebase(id);
+}
+
+// PDF
+function gerarPDF(){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  let y = 15;
+  doc.text("Relatório de Produção", 14, y);
+  y += 10;
+
+  window.lista.forEach(item => {
+    doc.text(`${item.turno} | ${item.maquina} | ${item.operador}`, 14, y);
+    y += 6;
+  });
+
+  doc.save("relatorio.pdf");
+}
+</script>
+
+</body>
+</html>
